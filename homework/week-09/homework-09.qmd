@@ -13,6 +13,10 @@ format:
     toc-depth: 2
 ---
 
+<style media="print">
+body { font-size: 11pt; }
+</style>
+
 The kernel-tuning question moved here from Homework 08. A solution for Question 1 will be available after Monday, October 26, 2026. No solution will be provided for Question 2.
 
 ## Question 1: Choosing an SVM kernel
@@ -93,6 +97,24 @@ I prefer the degree-2 polynomial setting because it had the smallest cross-valid
 
 ## Question 2: Write and use a short SVM analysis skill
 
+In Homework 8, you reviewed another student's skill. Review the comments and suggestions you received on your own Homework 7 skill. Use what you learned from both sides of the peer review to write a new, shorter skill for SVM model fitting.
+
+**Write the skill by hand.** Create a `SKILL.md` with a short name and description in YAML frontmatter. Write the entire file yourself, without asking AI to draft or edit it. The instruction body after the closing `---` of the frontmatter must be **no more than 50 lines**, including blank lines. Keep the skill independent of any particular dataset, variable names, or observed results, and load it only when you explicitly invoke it.
+
+Your skill should direct the agent to:
+
+1. judge whether the data are suitable for an SVM analysis;
+2. choose which kernels to consider and explain why;
+3. identify tuning parameters and a method for tuning them;
+4. choose an evaluation method that supports selecting a final model;
+5. require a compact figure and table that justify the choices;
+6. interpret the fit and report the key numerical results; and
+7. prioritize the evidence needed to justify the final model in **no more than one printed page at 11-point font**.
+
+**Apply the skill.** Explicitly invoke your skill to analyze `saheart.csv`, using the same response, nine predictors, and `famhist` coding as in Question 1. Provide these data details when invoking the skill, not in the skill itself. Let the skill guide the analysis, then check the resulting report and calculations.
+
+**Submit the results.** Include the one-page, 11-point analysis report in your Homework 09 submission and append the complete contents of your `SKILL.md` afterward. The appended skill is outside the one-page limit.
+
 ### Question 2 answer: one-page analysis report
 
 I explicitly invoked the local `svm-analysis` skill at
@@ -104,7 +126,7 @@ The data are suitable for SVM classification: 462 observations and 9
 predictors support a standardized margin-based classifier, the response is
 binary, and there are no missing values. I compared a linear kernel for a
 near-linear boundary, a degree-2 polynomial kernel for moderate interactions,
-and an RBF kernel for local nonlinear structure. I tuned (C) for every
+and an RBF kernel for local nonlinear structure. I tuned \(C\) for every
 family and tuned \(\gamma\) for RBF; polynomial `gamma=0.1` and `coef0=1`
 were held fixed. A stratified 75/25 split (seed 43202) reserved 116 test
 observations. On the 346-observation training set, all 10 candidates used the
@@ -114,7 +136,8 @@ once afterward.
 
 ```{python}
 #| label: q2-svm-analysis
-#| code-fold: true
+#| echo: false
+#| output: true
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix
 import matplotlib.pyplot as plt
@@ -151,7 +174,19 @@ for candidate in q2_candidates:
     q2_rows.append({**candidate, "CV error": np.mean(fold_errors),
                     "CV SE": np.std(fold_errors, ddof=1) / np.sqrt(5)})
 q2_results = pd.DataFrame(q2_rows)
-display(q2_results.style.format({"CV error": "{:.4f}", "CV SE": "{:.4f}"}).hide(axis="index"))
+q2_results["family"] = q2_results["kernel"].map(
+    {"linear": "Linear", "poly": "Degree-2 polynomial", "rbf": "RBF"}
+)
+family_best = (q2_results.sort_values("CV error")
+               .groupby("family", sort=False, as_index=False).first())
+family_best["setting"] = family_best.apply(
+    lambda r: (f"C={r['C']:g}" if r["family"] == "Linear" else
+               (f"C={r['C']:g}, gamma={r['gamma']:g}, coef0={r['coef0']:g}")), axis=1
+)
+display(family_best[["family", "setting", "CV error"]]
+        .rename(columns={"family": "Kernel family", "setting": "Best setting",
+                         "CV error": "Mean CV error"})
+        .style.format({"Mean CV error": "{:.4f}"}).hide(axis="index"))
 q2_best = q2_results.loc[q2_results["CV error"].idxmin()]
 q2_scaler = StandardScaler().fit(X_train)
 q2_final = SVC(kernel=q2_best["kernel"], C=q2_best["C"], degree=2,
@@ -163,10 +198,9 @@ q2_confusion = pd.DataFrame(
     confusion_matrix(y_test, q2_test_predictions, labels=[0, 1]),
     index=["observed 0", "observed 1"], columns=["predicted 0", "predicted 1"]
 )
-display(q2_confusion)
-print(f"Selected model: {q2_best['id']}")
-print(f"Reserved-test error: {q2_test_error:.4f}")
-print(f"Support-vector proportion in refit: {len(q2_final.support_) / len(y_train):.4f}")
+assert q2_confusion.to_numpy().sum() == len(y_test)
+assert round(q2_test_error, 4) == 0.2500
+assert round(len(q2_final.support_) / len(y_train), 3) == 0.595
 
 fig, ax = plt.subplots(figsize=(6.2, 2.8), constrained_layout=True)
 colors = ["#0072B2" if i == q2_best["id"] else "#999999" for i in q2_results["id"]]
@@ -178,15 +212,16 @@ ax.grid(axis="y", alpha=0.25)
 plt.show()
 ```
 
-The selected model was the degree-2 polynomial SVM with (C=1), `gamma=0.1`,
-and `coef0=1`, with CV error **0.2659** (SE **0.0135**). The reserved-test
-error was **0.2500**; its confusion matrix was
-\(\begin{pmatrix}68&8\\21&19\end{pmatrix}\) (observed rows, predicted
-columns), and 59.5% of training observations were support vectors. This
-evaluation was performed only after tuning and refitting on all training data,
-so it estimates new-observation performance rather than training fit. The
-single split and small candidate grid limit certainty; the figure and table
-show the evidence used for selection without making causal claims.
+Mean misclassification rate was the selection metric because the objective is
+binary prediction and no asymmetric error cost was specified. The compact table
+and figure show the best setting from each kernel family. The selected model
+was the degree-2 polynomial SVM with \(C=1\), `gamma=0.1`, and `coef0=1`, with
+CV error **0.2659** (SE **0.0135**). The reserved-test error was **0.2500**;
+its confusion matrix was \(\begin{pmatrix}68&8\\21&19\end{pmatrix}\) (observed
+rows, predicted columns), and 59.5% of training observations were support
+vectors. The test evaluation followed tuning and refitting on all training
+data. The single split and small candidate grid limit certainty; no causal
+feature interpretation is warranted.
 
 ### Complete `SKILL.md`
 
@@ -208,20 +243,3 @@ When invoked, guide the SVM workflow through these rigorous steps:
 
 ````
 
-In Homework 8, you reviewed another student's skill. Review the comments and suggestions you received on your own Homework 7 skill. Use what you learned from both sides of the peer review to write a new, shorter skill for SVM model fitting.
-
-**Write the skill by hand.** Create a `SKILL.md` with a short name and description in YAML frontmatter. Write the entire file yourself, without asking AI to draft or edit it. The instruction body after the closing `---` of the frontmatter must be **no more than 50 lines**, including blank lines. Keep the skill independent of any particular dataset, variable names, or observed results, and load it only when you explicitly invoke it.
-
-Your skill should direct the agent to:
-
-1. judge whether the data are suitable for an SVM analysis;
-2. choose which kernels to consider and explain why;
-3. identify tuning parameters and a method for tuning them;
-4. choose an evaluation method that supports selecting a final model;
-5. require a compact figure and table that justify the choices;
-6. interpret the fit and report the key numerical results; and
-7. prioritize the evidence needed to justify the final model in **no more than one printed page at 11-point font**.
-
-**Apply the skill.** Explicitly invoke your skill to analyze `saheart.csv`, using the same response, nine predictors, and `famhist` coding as in Question 1. Provide these data details when invoking the skill, not in the skill itself. Let the skill guide the analysis, then check the resulting report and calculations.
-
-**Submit the results.** Include the one-page, 11-point analysis report in your Homework 09 submission and append the complete contents of your `SKILL.md` afterward. The appended skill is outside the one-page limit.
