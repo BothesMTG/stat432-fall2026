@@ -1,0 +1,227 @@
+---
+title: "Homework 09"
+pagetitle: "Homework 09"
+body-classes: "lecture-page practice-page"
+format:
+  html:
+    embed-resources: true
+    html-math-method: mathml
+    page-layout: full
+    toc: true
+    toc-location: body
+    toc-title: "On this page"
+    toc-depth: 2
+---
+
+The kernel-tuning question moved here from Homework 08. A solution for Question 1 will be available after Monday, October 26, 2026. No solution will be provided for Question 2.
+
+## Question 1: Choosing an SVM kernel
+
+Use `saheart.csv` from the combined ZIP. As in Homework 7, predict `chd` using the same nine predictors, coding `famhist` as 1 for `Absent` and 2 for `Present`.
+
+Compare SVMs with a linear kernel, polynomial kernels of degrees 2 (quadratic), 3, and 4, and a radial basis kernel. Choose **no more than 20 candidate settings in total** across these kernels. Vary the cost $C$ for each kernel and the radial scale $\gamma$ for the radial kernel. State any other kernel settings you hold fixed.
+
+Divide the observations into five folds yourself and use the same folds for all candidates. Standardize predictors using only the fitting observations in each fold. Report the candidate settings and their mean cross-validation misclassification rates. Which kernel and settings do you prefer? Give a brief justification.
+
+### Question 1 answer
+
+I used `chd` as the response and the other nine variables as predictors, coding `famhist` as 1 for Absent and 2 for Present. The data have **462 observations**, **9 predictors**, class counts 302 and 160 for `chd=0` and `chd=1`, and no missing values. I used seed **43201**, one stratified five-fold partition, and reused that same partition for every candidate. Within each fold, the center and scale were fitted on the fitting observations only and then applied to that fold's validation observations.
+
+I compared **18 settings** in total: three values of \(C\in\{0.1,1,10\}\) for the linear kernel; the same three values for polynomial degrees 2, 3, and 4; and six radial settings from \(C\in\{0.1,1,10\}\) and \(\gamma\in\{0.01,0.1\}\). Polynomial models used fixed `gamma=0.1` and `coef0=1`; radial models used `coef0=0`.
+
+```{python}
+#| label: q1-svm-cv
+import numpy as np
+import pandas as pd
+from IPython.display import display
+from sklearn.model_selection import StratifiedKFold
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
+
+saheart = pd.read_csv("data/saheart.csv")
+saheart["famhist"] = saheart["famhist"].map({"Absent": 1, "Present": 2})
+X = saheart.drop(columns="chd").to_numpy(dtype=float)
+y = saheart["chd"].to_numpy(dtype=int)
+assert X.shape == (462, 9) and not np.isnan(X).any() and not pd.isna(y).any()
+
+candidates = []
+for C in (0.1, 1, 10):
+    candidates.append({"id": f"L-{C:g}", "kernel": "linear", "C": C,
+                       "degree": "-", "gamma": "-", "coef0": "-"})
+for degree in (2, 3, 4):
+    for C in (0.1, 1, 10):
+        candidates.append({"id": f"P{degree}-{C:g}", "kernel": "poly", "C": C,
+                           "degree": degree, "gamma": 0.1, "coef0": 1})
+for C in (0.1, 1, 10):
+    for gamma in (0.01, 0.1):
+        candidates.append({"id": f"R-{C:g}-{gamma:g}", "kernel": "rbf", "C": C,
+                           "degree": "-", "gamma": gamma, "coef0": 0})
+assert len(candidates) == 18 and len(candidates) <= 20
+display(pd.DataFrame(candidates).style.hide(axis="index"))
+
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=43201)
+splits = list(cv.split(X, y))
+validation_counts = np.zeros(len(y), dtype=int)
+for _, validation in splits:
+    validation_counts[validation] += 1
+assert np.all(validation_counts == 1)
+
+rows = []
+for candidate in candidates:
+    fold_errors = []
+    for fitting, validation in splits:
+        scaler = StandardScaler().fit(X[fitting])
+        model = SVC(
+            kernel=candidate["kernel"], C=candidate["C"],
+            degree=3 if candidate["degree"] == "-" else candidate["degree"],
+            gamma="scale" if candidate["gamma"] == "-" else candidate["gamma"],
+            coef0=0 if candidate["coef0"] == "-" else candidate["coef0"],
+        ).fit(scaler.transform(X[fitting]), y[fitting])
+        predictions = model.predict(scaler.transform(X[validation]))
+        fold_errors.append(np.mean(predictions != y[validation]))
+    rows.append({**candidate, **{f"fold {j+1} error": e
+                for j, e in enumerate(fold_errors)},
+                "mean CV error": np.mean(fold_errors)})
+results = pd.DataFrame(rows)
+display(results.style.format({**{f"fold {j} error": "{:.4f}" for j in range(1, 6)},
+                              "mean CV error": "{:.4f}"}).hide(axis="index"))
+```
+
+The lowest mean CV error was the degree-2 polynomial SVM with \(C=0.1\), `gamma=0.1`, and `coef0=1`: **0.2641**. The best settings within each family were linear \(C=10\) (**0.2835**), degree-2 polynomial \(C=0.1\) (**0.2641**), degree-3 polynomial \(C=0.1\) (**0.2683**), degree-4 polynomial \(C=0.1\) (**0.2684**), and radial \(C=10,\gamma=0.01\) (**0.2684**).
+
+I prefer the degree-2 polynomial setting because it had the smallest cross-validated misclassification rate. Its improvement over the best linear SVM was **0.0194** (about two percentage points), so the result provides some evidence that modest nonlinear flexibility helps on these data, but the small difference should not be treated as definitive. The parameter \(C\) controls the tradeoff between margin violations and regularization, while \(\gamma\) controls the locality of an RBF kernel. The shared five-fold CV errors estimate performance on new observations without using training accuracy for selection.
+
+## Question 2: Write and use a short SVM analysis skill
+
+### Question 2 answer: one-page analysis report
+
+I explicitly invoked the local `svm-analysis` skill at
+`homework/week-09/SKILL.md` with only the permitted dataset information:
+course `saheart.csv`; response `chd`; the other nine predictors; and
+`famhist` coded as Absent = 1 and Present = 2.
+
+The data are suitable for SVM classification: 462 observations and 9
+predictors support a standardized margin-based classifier, the response is
+binary, and there are no missing values. I compared a linear kernel for a
+near-linear boundary, a degree-2 polynomial kernel for moderate interactions,
+and an RBF kernel for local nonlinear structure. I tuned (C) for every
+family and tuned \(\gamma\) for RBF; polynomial `gamma=0.1` and `coef0=1`
+were held fixed. A stratified 75/25 split (seed 43202) reserved 116 test
+observations. On the 346-observation training set, all 10 candidates used the
+same shuffled five folds, and every scaler was fitted inside each fitting fold.
+Mean CV misclassification selected the final model; the test set was used
+once afterward.
+
+```{python}
+#| label: q2-svm-analysis
+#| code-fold: true
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.25, stratify=y, random_state=43202
+)
+q2_candidates = []
+for C in (0.1, 1, 10):
+    q2_candidates.append({"id": f"L-{C:g}", "kernel": "linear", "C": C,
+                         "degree": "-", "gamma": "-", "coef0": "-"})
+for C in (0.1, 1, 10):
+    q2_candidates.append({"id": f"P2-{C:g}", "kernel": "poly", "C": C,
+                         "degree": 2, "gamma": 0.1, "coef0": 1})
+for C in (1, 10):
+    for gamma in (0.01, 0.1):
+        q2_candidates.append({"id": f"R-{C:g}-{gamma:g}", "kernel": "rbf", "C": C,
+                             "degree": "-", "gamma": gamma, "coef0": 0})
+q2_cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=43202)
+q2_splits = list(q2_cv.split(X_train, y_train))
+q2_rows = []
+for candidate in q2_candidates:
+    fold_errors = []
+    for fitting, validation in q2_splits:
+        scaler = StandardScaler().fit(X_train[fitting])
+        model = SVC(
+            kernel=candidate["kernel"], C=candidate["C"],
+            degree=2 if candidate["degree"] == "-" else candidate["degree"],
+            gamma="scale" if candidate["gamma"] == "-" else candidate["gamma"],
+            coef0=0 if candidate["coef0"] == "-" else candidate["coef0"],
+        ).fit(scaler.transform(X_train[fitting]), y_train[fitting])
+        predictions = model.predict(scaler.transform(X_train[validation]))
+        fold_errors.append(np.mean(predictions != y_train[validation]))
+    q2_rows.append({**candidate, "CV error": np.mean(fold_errors),
+                    "CV SE": np.std(fold_errors, ddof=1) / np.sqrt(5)})
+q2_results = pd.DataFrame(q2_rows)
+display(q2_results.style.format({"CV error": "{:.4f}", "CV SE": "{:.4f}"}).hide(axis="index"))
+q2_best = q2_results.loc[q2_results["CV error"].idxmin()]
+q2_scaler = StandardScaler().fit(X_train)
+q2_final = SVC(kernel=q2_best["kernel"], C=q2_best["C"], degree=2,
+               gamma=q2_best["gamma"], coef0=q2_best["coef0"]).fit(
+                   q2_scaler.transform(X_train), y_train)
+q2_test_predictions = q2_final.predict(q2_scaler.transform(X_test))
+q2_test_error = np.mean(q2_test_predictions != y_test)
+q2_confusion = pd.DataFrame(
+    confusion_matrix(y_test, q2_test_predictions, labels=[0, 1]),
+    index=["observed 0", "observed 1"], columns=["predicted 0", "predicted 1"]
+)
+display(q2_confusion)
+print(f"Selected model: {q2_best['id']}")
+print(f"Reserved-test error: {q2_test_error:.4f}")
+print(f"Support-vector proportion in refit: {len(q2_final.support_) / len(y_train):.4f}")
+
+fig, ax = plt.subplots(figsize=(6.2, 2.8), constrained_layout=True)
+colors = ["#0072B2" if i == q2_best["id"] else "#999999" for i in q2_results["id"]]
+ax.bar(q2_results["id"], q2_results["CV error"], color=colors)
+ax.set_ylabel("Five-fold CV misclassification rate")
+ax.set_xlabel("Candidate setting")
+ax.tick_params(axis="x", rotation=45)
+ax.grid(axis="y", alpha=0.25)
+plt.show()
+```
+
+The selected model was the degree-2 polynomial SVM with (C=1), `gamma=0.1`,
+and `coef0=1`, with CV error **0.2659** (SE **0.0135**). The reserved-test
+error was **0.2500**; its confusion matrix was
+\(\begin{pmatrix}68&8\\21&19\end{pmatrix}\) (observed rows, predicted
+columns), and 59.5% of training observations were support vectors. This
+evaluation was performed only after tuning and refitting on all training data,
+so it estimates new-observation performance rather than training fit. The
+single split and small candidate grid limit certainty; the figure and table
+show the evidence used for selection without making causal claims.
+
+### Complete `SKILL.md`
+
+````markdown
+---
+name: svm-analysis
+description: Rigorous, leak-free SVM classification workflow covering data suitability, justified kernel selection, hyperparameter tuning, evaluation, and compact reporting.
+disable-model-invocation: true
+---
+
+When invoked, guide the SVM workflow through these rigorous steps:
+1. **Suitability Assessment**: Conclude whether SVM is a sensible choice based on sample size, predictor-to-sample ratio, and response structure. Verify binary/multiclass classification targets, address missing values, and encode categorical predictors.
+2. **Justified Kernel Selection**: Select candidate kernels (e.g., linear, RBF) and **explicitly justify why** each kernel fits the underlying feature space geometry or data characteristics.
+3. **Hyperparameter Design & Tuning**: Identify tuning parameters (e.g., $C$, $\gamma$) and state which parameters are held fixed. Use **identical resampling splits** across all candidates. Ensure all preprocessing (e.g., scaling) is fitted strictly within each training fold to prevent data leakage.
+4. **Model Evaluation Strategy**: Select a performance metric aligned with the prediction objective (avoiding generic imbalance assumptions). Clearly separate hyperparameter tuning from final unbiased performance evaluation.
+5. **Tabulation & Visualization**: Require a compact comparison table and a tuning-performance figure that directly support model-selection evidence.
+6. **Interpretation & Results**: Interpret the final fit by reporting key numerical results (e.g., test error, AUC, support vector proportion) while avoiding over-interpreted causal feature impacts.
+7. **Evidence Prioritization**: Prioritize core justifying evidence to ensure the final report fits strictly within a single printed page at 11-point font.
+
+````
+
+In Homework 8, you reviewed another student's skill. Review the comments and suggestions you received on your own Homework 7 skill. Use what you learned from both sides of the peer review to write a new, shorter skill for SVM model fitting.
+
+**Write the skill by hand.** Create a `SKILL.md` with a short name and description in YAML frontmatter. Write the entire file yourself, without asking AI to draft or edit it. The instruction body after the closing `---` of the frontmatter must be **no more than 50 lines**, including blank lines. Keep the skill independent of any particular dataset, variable names, or observed results, and load it only when you explicitly invoke it.
+
+Your skill should direct the agent to:
+
+1. judge whether the data are suitable for an SVM analysis;
+2. choose which kernels to consider and explain why;
+3. identify tuning parameters and a method for tuning them;
+4. choose an evaluation method that supports selecting a final model;
+5. require a compact figure and table that justify the choices;
+6. interpret the fit and report the key numerical results; and
+7. prioritize the evidence needed to justify the final model in **no more than one printed page at 11-point font**.
+
+**Apply the skill.** Explicitly invoke your skill to analyze `saheart.csv`, using the same response, nine predictors, and `famhist` coding as in Question 1. Provide these data details when invoking the skill, not in the skill itself. Let the skill guide the analysis, then check the resulting report and calculations.
+
+**Submit the results.** Include the one-page, 11-point analysis report in your Homework 09 submission and append the complete contents of your `SKILL.md` afterward. The appended skill is outside the one-page limit.
